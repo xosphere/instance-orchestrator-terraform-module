@@ -3662,9 +3662,9 @@ EOF
 
 resource "aws_lambda_permission" "instance_orchestrator_terraformer_permission" {
   action = "lambda:InvokeFunction"
-  function_name = "xosphere-instance-orchestrator-launcher"
+  function_name = aws_lambda_function.instance_orchestrator_terraformer_lambda.function_name
   principal = "lambda.amazonaws.com"
-  source_arn = aws_lambda_function.xosphere_instance_orchestrator_launcher_lambda.arn
+  source_arn = aws_lambda_function.instance_orchestrator_terraformer_lambda.arn
   statement_id = "AllowExecutionFromLambda"
 }
 
