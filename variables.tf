@@ -352,7 +352,24 @@ variable "enhanced_security_managed_resources" {
   default = false
 }
 
+variable "enhanced_security_use_cmk" {
+  default = false
+}
 
+variable "management_account_data_bucket" {
+  description = "S3 bucket name for the Xosphere Management Account Data"
+  default = ""
+}
+
+variable "management_account_region" {
+  description = "Xosphere Management Account Region"
+  default = ""
+}
+
+variable "management_aws_account_id" {
+  description = "Xosphere Management AWS Account Id"
+  default = ""
+}
 
 
 
@@ -459,6 +476,11 @@ variable "orchestrator_lambda_permission_name_override" {
 }
 
 variable "secretsmanager_arn_override" {
+  description = "An explicit name to use"
+  default = null
+}
+
+variable "instance_orchestrator_terraformer_permission_name_override" {
   description = "An explicit name to use"
   default = null
 }
