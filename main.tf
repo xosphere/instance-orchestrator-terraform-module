@@ -1,5 +1,5 @@
 locals {
-  version = "0.28.3"
+  version = "0.28.4"
   api_token_arn = (var.secretsmanager_arn_override == null) ? format("arn:aws:secretsmanager:%s:%s:secret:customer/%s", local.xo_account_region, var.xo_account_id, var.customer_id) : var.secretsmanager_arn_override
   api_token_pattern = (var.secretsmanager_arn_override == null) ? format("arn:aws:secretsmanager:%s:%s:secret:customer/%s-??????", local.xo_account_region, var.xo_account_id, var.customer_id) : var.secretsmanager_arn_override
   regions = join(",", var.regions_enabled)
@@ -713,7 +713,6 @@ resource "aws_lambda_function" "xosphere_terminator_lambda" {
       IO_BRIDGE_NAME = "xosphere-io-bridge"
       K8S_VPC_ENABLED = local.has_k8s_vpc_config_string
       K8S_POD_EVICTION_GRACE_PERIOD = var.k8s_pod_eviction_grace_period
-      ENABLE_ECS = var.enable_ecs
       ATTACHER_NAME = aws_lambda_function.instance_orchestrator_attacher_lambda.function_name
       IGNORE_LB_HEALTH_CHECK = var.ignore_lb_health_check      
     }
@@ -776,7 +775,6 @@ resource "aws_iam_role_policy" "xosphere_terminator_policy" {
         "ec2:DescribeSpotPriceHistory",
         "ec2:DescribeSubnets",
         "ec2:DescribeVolumes",
-        "ecs:ListClusters",
         "ec2:ModifyInstanceAttribute",
         "elasticloadbalancing:DescribeTargetGroups",
         "elasticloadbalancing:DescribeTargetHealth",
@@ -884,15 +882,6 @@ resource "aws_iam_role_policy" "xosphere_terminator_policy" {
           "aws:ResourceTag/xosphere:instance-orchestrator:xogroup-name": ["*"]
         }
       }
-    },
-    {
-      "Sid": "AllowEcsOperations",
-      "Effect": "Allow",
-      "Action": [
-        "ecs:DescribeContainerInstances",
-        "ecs:ListTasks"
-      ],
-      "Resource": "arn:*:ecs:*:*:container-instance/*"
     },
     {
       "Sid": "AllowEcsClusterOperations",
@@ -1032,26 +1021,6 @@ resource "aws_iam_role_policy" "xosphere_terminator_policy" {
 EOF
 }
 
-resource "aws_iam_role_policy" "xosphere_terminator_policy_additional" {
-  name = "xosphere-terminator-lambda-policy-additional"
-  role = aws_iam_role.xosphere_terminator_role.id
-  policy = <<EOF
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Sid": "AllowEcsOperations",
-      "Effect": "Allow",
-      "Action": [
-		"ecs:UpdateContainerInstancesState" %{ if false } # should use ResourceTag 'authorized', but no Condition Key currently available in IAM %{ endif }
-	  ],
-      "Resource": "arn:*:ecs:*:*:container-instance/*"
-    }
-  ]
-}
-EOF
-}
-
 resource "aws_iam_role_policy" "xosphere_terminator_policy_service_linked_roles" {
   name = "xosphere-terminator-lambda-policy-service-linked-roles"
   role = aws_iam_role.xosphere_terminator_role.id
@@ -1133,7 +1102,6 @@ resource "aws_lambda_function" "xosphere_instance_orchestrator_lambda" {
       SQS_SCHEDULER_QUEUE = aws_sqs_queue.instance_orchestrator_schedule_queue.id
       SQS_SNAPSHOT_QUEUE = aws_sqs_queue.instance_orchestrator_snapshot_queue.id
       ENABLE_CLOUDWATCH = var.enable_cloudwatch
-      ENABLE_ECS = var.enable_ecs
       IO_BRIDGE_NAME = local.has_k8s_vpc_config ? aws_lambda_function.xosphere_io_bridge_lambda[0].id : "xosphere-io-bridge"
       ATTACHER_NAME = aws_lambda_function.instance_orchestrator_attacher_lambda.function_name
       K8S_VPC_ENABLED = local.has_k8s_vpc_config_string
@@ -1218,7 +1186,6 @@ resource "aws_iam_role_policy" "xosphere_instance_orchestrator_policy" {
         "autoscaling:DescribeNotificationConfigurations",
         "autoscaling:DescribeTags",
         "autoscaling:DescribePolicies",
-        "ecs:ListClusters",
         "eks:DescribeNodegroup",
         "elasticloadbalancing:DescribeInstanceHealth",
         "elasticloadbalancing:DescribeLoadBalancers",
@@ -1258,6 +1225,7 @@ resource "aws_iam_role_policy" "xosphere_instance_orchestrator_policy" {
         "autoscaling:DetachInstances",
         "autoscaling:ResumeProcesses",
         "autoscaling:SuspendProcesses",
+        "autoscaling:TerminateInstanceInAutoScalingGroup",
         "autoscaling:UpdateAutoScalingGroup"
       ],
       "Resource": "arn:*:autoscaling:*:*:autoScalingGroup:*:autoScalingGroupName/*",
@@ -1279,6 +1247,7 @@ resource "aws_iam_role_policy" "xosphere_instance_orchestrator_policy" {
         "autoscaling:DetachInstances",
         "autoscaling:ResumeProcesses",
         "autoscaling:SuspendProcesses",
+        "autoscaling:TerminateInstanceInAutoScalingGroup",
         "autoscaling:UpdateAutoScalingGroup"
       ],
       "Resource": "arn:*:autoscaling:*:*:autoScalingGroup:*:autoScalingGroupName/*",
@@ -1298,15 +1267,6 @@ resource "aws_iam_role_policy" "xosphere_instance_orchestrator_policy" {
       "Condition": {
         "StringLike": {"cloudwatch:namespace": ["xosphere.io/instance-orchestrator/*"]}
       }
-    },
-    {
-      "Sid": "AllowEcsReadOperations",
-      "Effect": "Allow",
-      "Action": [
-        "ecs:DescribeContainerInstances",
-        "ecs:ListTasks"
-	  ],
-      "Resource": "arn:*:ecs:*:*:container-instance/*"
     },
     {
       "Sid": "AllowEcsClusterReadOperations",
@@ -1557,14 +1517,6 @@ resource "aws_iam_role_policy" "xosphere_instance_orchestrator_policy_additional
         "elasticloadbalancing:DeregisterTargets" %{ if false } # # should use ResourceTag 'authorized', but no Condition Key currently available in IAM %{ endif }
 	  ],
       "Resource": "*"
-    },
-    {
-      "Sid": "AllowEcsUpdateOperations",
-      "Effect": "Allow",
-      "Action": [
-        "ecs:UpdateContainerInstancesState" %{ if false } # should use ResourceTag 'authorized', but no Condition Key currently available in IAM %{ endif }
-	  ],
-      "Resource": "arn:*:ecs:*:*:container-instance/*"
     },
     {
       "Sid": "AllowEcsClusterUpdateOperations",
@@ -5554,6 +5506,7 @@ resource "aws_iam_role_policy" "instance_orchestrator_attacher_lambda_policy" {
         "autoscaling:DetachInstances",
         "autoscaling:ResumeProcesses",
         "autoscaling:SuspendProcesses",
+        "autoscaling:TerminateInstanceInAutoScalingGroup",
         "autoscaling:UpdateAutoScalingGroup"
       ],
       "Resource": "arn:*:autoscaling:*:*:autoScalingGroup:*:autoScalingGroupName/*",
@@ -5573,6 +5526,7 @@ resource "aws_iam_role_policy" "instance_orchestrator_attacher_lambda_policy" {
         "autoscaling:DetachInstances",
         "autoscaling:ResumeProcesses",
         "autoscaling:SuspendProcesses",
+        "autoscaling:TerminateInstanceInAutoScalingGroup",
         "autoscaling:UpdateAutoScalingGroup"
       ],
       "Resource": "arn:*:autoscaling:*:*:autoScalingGroup:*:autoScalingGroupName/*",
